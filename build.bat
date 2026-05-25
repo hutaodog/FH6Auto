@@ -30,6 +30,7 @@ python -m PyInstaller ^
     -n "%APP_NAME%" ^
     -F ^
     -w ^
+    --uac-admin ^
     "%MAIN_FILE%" ^
     --icon=assets/icon.ico ^
     --add-data "images;images" ^
