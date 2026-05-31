@@ -11,7 +11,7 @@
     "next_2": 3,
     "next_3": 4,
     "next_4": 1,
-    "global_loops": 5,
+    "global_loops": 6,
     "skill_dirs": [
         "right",
         "up",
@@ -20,7 +20,7 @@
         "left"
     ],
     "share_code": "890169683",
-    "auto_restart": false,
+    "auto_restart": true,
     "restart_cmd": "start steam://run/2483190",
     "sell_mode": 1,
     "use_ocr": false,
