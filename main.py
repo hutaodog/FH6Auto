@@ -515,8 +515,11 @@ class GameCapture:
             self.window_w = rect[2]
             self.window_h = rect[3]
 
+            window_title = win32gui.GetWindowText(hwnd)
+            if not window_title:
+                window_title = None
             self.capture = WindowsCapture(
-                window_name=None,
+                window_name=window_title,
                 cursor_capture=False,
                 draw_border=False,
             )
@@ -525,7 +528,7 @@ class GameCapture:
             self.control = self.capture.start_free_threaded()
             self.active = True
             return True
-        except Exception:
+        except Exception as e:
             self.active = False
             return False
 
@@ -2048,14 +2051,8 @@ class FH_UltimateBot(ctk.CTk):
                 hwnd = hwnds[0]
                 if ctypes.windll.user32.IsIconic(hwnd):
                     ctypes.windll.user32.ShowWindow(hwnd, 9)
-                else:
-                    ctypes.windll.user32.ShowWindow(hwnd, 5)
-                    
-                ctypes.windll.user32.SetForegroundWindow(hwnd)
-                time.sleep(0.5)
-                # ====== 【新增】：强制关闭中文输入法 ======
-                self.set_english_input()
-                # ==========================================
+                    time.sleep(0.5)
+
                 try:
                     # 1. 更新识图区域为游戏实际窗口区域（识图必须在游戏窗口内）
                     client_rect = win32gui.GetClientRect(hwnd)
@@ -2072,10 +2069,11 @@ class FH_UltimateBot(ctk.CTk):
 
                     # 启动 Windows.Graphics.Capture 窗口捕获
                     if HAS_WINDOWS_CAPTURE and not self.game_capture.active:
+                        wt = win32gui.GetWindowText(hwnd)
                         if self.game_capture.start(hwnd):
-                            self.log("已启动 Windows.Graphics.Capture 窗口捕获。")
+                            self.log(f"已启动窗口捕获 (窗口: {wt})")
                         else:
-                            self.log("窗口捕获启动失败，回退到屏幕截图模式。")
+                            self.log(f"窗口捕获启动失败，回退到截图模式。")
 
                     # 2. 获取该窗口所在的物理显示器边界
                     MONITOR_DEFAULTTONEAREST = 2
