@@ -63,6 +63,12 @@ import threading
 import socket
 import struct
 
+try:
+    from windows_capture import WindowsCapture, Frame
+    HAS_WINDOWS_CAPTURE = True
+except ImportError:
+    HAS_WINDOWS_CAPTURE = False
+
 
 
 # ==========================================
@@ -481,6 +487,78 @@ class TelemetryWorker(threading.Thread):
                 self.callback(data)
 
 
+# ==========================================
+# --- Windows.Graphics.Capture 窗口捕获模块 ---
+# ==========================================
+class GameCapture:
+    """使用 Windows.Graphics.Capture API 直接捕获游戏窗口画面"""
+    def __init__(self):
+        self.latest_frame = None
+        self.lock = threading.Lock()
+        self.capture = None
+        self.control = None
+        self.active = False
+        self.window_x = 0
+        self.window_y = 0
+        self.window_w = 0
+        self.window_h = 0
+
+    def start(self, hwnd):
+        if not HAS_WINDOWS_CAPTURE:
+            return False
+        try:
+            rect = win32gui.GetClientRect(hwnd)
+            pt = win32gui.ClientToScreen(hwnd, (0, 0))
+            self.window_x = pt[0]
+            self.window_y = pt[1]
+            self.window_w = rect[2]
+            self.window_h = rect[3]
+
+            self.capture = WindowsCapture(
+                window_name=None,
+                cursor_capture=False,
+                draw_border=False,
+            )
+            self.capture.on_frame_arrived(self._on_frame)
+            self.capture.on_closed(self._on_closed)
+            self.control = self.capture.start_free_threaded()
+            self.active = True
+            return True
+        except Exception:
+            self.active = False
+            return False
+
+    def _on_frame(self, frame, capture_control):
+        try:
+            bgr = frame.to_bgr()
+            with self.lock:
+                self.latest_frame = bgr
+                self.window_h, self.window_w = bgr.shape[:2]
+        except Exception:
+            pass
+
+    def _on_closed(self):
+        self.active = False
+
+    def get_frame(self):
+        with self.lock:
+            if self.latest_frame is not None:
+                return self.latest_frame.copy()
+        return None
+
+    def stop(self):
+        self.active = False
+        if self.control:
+            try:
+                self.control.stop()
+            except Exception:
+                pass
+        self.control = None
+        self.capture = None
+        with self.lock:
+            self.latest_frame = None
+
+
 # --- 全局配置 ---
 ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("blue")
@@ -545,6 +623,9 @@ class FH_UltimateBot(ctk.CTk):
         self.telemetry_reader = None
         self.telemetry_data = {}
         self._init_telemetry()
+
+        # 初始化窗口捕获模块
+        self.game_capture = GameCapture()
 
         self.setup_ui()
         self.start_hotkey_listener()
@@ -1738,6 +1819,10 @@ class FH_UltimateBot(ctk.CTk):
         except Exception:
             pass
 
+        # 停止窗口捕获
+        if hasattr(self, "game_capture") and self.game_capture.active:
+            self.game_capture.stop()
+
         def restore_ui():
             if hasattr(self, "mini_frame"):
                 self.mini_frame.pack_forget()
@@ -1939,6 +2024,13 @@ class FH_UltimateBot(ctk.CTk):
                         return False 
                     # ====================================================
                     self.update_regions_by_window(gx, gy, gw, gh)
+
+                    # 启动 Windows.Graphics.Capture 窗口捕获
+                    if HAS_WINDOWS_CAPTURE and not self.game_capture.active:
+                        if self.game_capture.start(hwnd):
+                            self.log("已启动 Windows.Graphics.Capture 窗口捕获。")
+                        else:
+                            self.log("窗口捕获启动失败，回退到屏幕截图模式。")
 
                     # 2. 获取该窗口所在的物理显示器边界
                     MONITOR_DEFAULTTONEAREST = 2
@@ -2449,17 +2541,39 @@ class FH_UltimateBot(ctk.CTk):
             self.load_template_file_cache()
 
     def capture_region(self, region=None, mask_areas=None):
-        try:
-            if region:
-                x, y, w, h = region
-                bbox = (int(x), int(y), int(x + w), int(y + h))
-                screen = ImageGrab.grab(bbox=bbox, all_screens=True)
-            else:
-                screen = ImageGrab.grab(all_screens=True)
-        except Exception:
-            screen = pyautogui.screenshot(region=region)
+        screen_bgr = None
 
-        screen_bgr = cv2.cvtColor(np.array(screen), cv2.COLOR_RGB2BGR)
+        # 优先使用 Windows.Graphics.Capture 窗口捕获
+        if self.game_capture.active:
+            frame = self.game_capture.get_frame()
+            if frame is not None:
+                if region:
+                    x, y, w, h = region
+                    # 将屏幕坐标转换为窗口相对坐标
+                    rx = int(x - self.game_capture.window_x)
+                    ry = int(y - self.game_capture.window_y)
+                    fh, fw = frame.shape[:2]
+                    rx = max(0, min(rx, fw))
+                    ry = max(0, min(ry, fh))
+                    rx2 = max(0, min(rx + int(w), fw))
+                    ry2 = max(0, min(ry + int(h), fh))
+                    if rx2 > rx and ry2 > ry:
+                        screen_bgr = frame[ry:ry2, rx:rx2].copy()
+                else:
+                    screen_bgr = frame
+
+        # 回退到传统屏幕截图
+        if screen_bgr is None:
+            try:
+                if region:
+                    x, y, w, h = region
+                    bbox = (int(x), int(y), int(x + w), int(y + h))
+                    screen = ImageGrab.grab(bbox=bbox, all_screens=True)
+                else:
+                    screen = ImageGrab.grab(all_screens=True)
+            except Exception:
+                screen = pyautogui.screenshot(region=region)
+            screen_bgr = cv2.cvtColor(np.array(screen), cv2.COLOR_RGB2BGR)
 
         # 对指定区域打黑块，避免重复识别同一个目标
         if mask_areas:
@@ -2681,8 +2795,8 @@ class FH_UltimateBot(ctk.CTk):
             return None
 
         try:
-            screen = pyautogui.screenshot(region=region)
-            screen_gray = cv2.cvtColor(np.array(screen), cv2.COLOR_RGB2GRAY)
+            screen_bgr = self.capture_region(region)
+            screen_gray = cv2.cvtColor(screen_bgr, cv2.COLOR_BGR2GRAY)
 
             main_tpl = self.load_template_gray(main_path)
             sub_tpl = self.load_template_gray(sub_path)
@@ -2866,8 +2980,8 @@ class FH_UltimateBot(ctk.CTk):
             return None
 
         try:
-            screen = pyautogui.screenshot(region=region)
-            screen_gray = cv2.cvtColor(np.array(screen), cv2.COLOR_RGB2GRAY)
+            screen_bgr = self.capture_region(region)
+            screen_gray = cv2.cvtColor(screen_bgr, cv2.COLOR_BGR2GRAY)
 
             main_tpl = self.load_template_gray(main_path)
             sub_tpl = self.load_template_gray(sub_path)
