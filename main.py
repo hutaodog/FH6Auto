@@ -703,6 +703,40 @@ class FH_UltimateBot(ctk.CTk):
                 pass
         self.after(1000, _update)
 
+    def _start_main_telemetry_update(self):
+        def _update():
+            try:
+                if not hasattr(self, "lbl_telemetry_main"):
+                    return
+                reader = self.telemetry_reader
+                if reader and reader.connected:
+                    d = self.telemetry_data
+                    race_on = d.get("is_race_on", 0)
+                    speed = d.get("speed", 0) * 3.6
+                    rpm = d.get("current_engine_rpm", 0)
+                    gear = d.get("gear", 0)
+                    status = "比赛中" if race_on else "漫游中"
+                    color = "#2EA043" if race_on else "#F1C40F"
+                    self.lbl_telemetry_main.configure(
+                        text=f"遥测: 已连接 ({status})", text_color=color)
+                    self.lbl_telemetry_detail.configure(
+                        text=f"{speed:.0f}km/h | {rpm:.0f}rpm | {gear}挡 | P{d.get('race_position', 0)} | 圈{d.get('lap_number', 0)}")
+                elif reader:
+                    self.lbl_telemetry_main.configure(
+                        text="遥测: 等待数据... (请开启游戏Data Out)", text_color="#E67E22")
+                    self.lbl_telemetry_detail.configure(text="")
+                else:
+                    self.lbl_telemetry_main.configure(
+                        text="遥测: 未启动", text_color="#888888")
+                    self.lbl_telemetry_detail.configure(text="")
+            except Exception:
+                pass
+            try:
+                self.after(500, _update)
+            except Exception:
+                pass
+        self.after(1500, _update)
+
     def center_window(self):
         self.update_idletasks()
         w = self.winfo_width()
@@ -1329,6 +1363,16 @@ class FH_UltimateBot(ctk.CTk):
             command=self.open_support_window,
         )
         self.btn_support.pack(fill="x", padx=18, pady=(6, 12))
+
+        self.telemetry_frame = ctk.CTkFrame(self, fg_color="#2B2B2B", height=36, corner_radius=10)
+        self.telemetry_frame.pack(fill="x", padx=18, pady=(0, 6))
+        self.telemetry_frame.pack_propagate(False)
+        self.lbl_telemetry_main = ctk.CTkLabel(self.telemetry_frame, text="遥测: 检测中...", font=ctk.CTkFont(size=13), text_color="#888888")
+        self.lbl_telemetry_main.pack(side="left", padx=(15, 10))
+        self.lbl_telemetry_detail = ctk.CTkLabel(self.telemetry_frame, text="", font=ctk.CTkFont(size=12), text_color="#666666")
+        self.lbl_telemetry_detail.pack(side="left", padx=5)
+        self._start_main_telemetry_update()
+
         self.sync_buy_to_sell()
 
         #ocr加载 
