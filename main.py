@@ -3844,68 +3844,50 @@ class FH_UltimateBot(ctk.CTk):
         self.hw_press("enter")
         time.sleep(2.0)
 
-        pos_target = self.wait_for_image_with_element_multi(
-            "skillcar.png",
-            "liketag.png",
-            region=self.regions["全界面"],
-            fast_mode=True,
-            main_threshold=0.75,
-            like_threshold=0.7,
-            final_threshold=0.7,
-            timeout=2,
-            interval=0.25
-        )
-
-        if not pos_target:
-            self.log("未找到带 liketag 的目标车辆，重新选品牌...")
-            self.hw_press("backspace")
-            time.sleep(1.2)
-
-            found_brand = False
-            for _ in range(3):
-                if not self.is_running:
-                    return False
-
-                pos_brand = self.wait_for_image_gray("skillcarbrand.png", region=self.regions["全界面"], threshold=0.8, timeout=1.2, interval=0.2, fast_mode=True)
-                if pos_brand:
-                    self.game_click(pos_brand)
-                    time.sleep(1.2)
-                    found_brand = True
-                    break
-
-                self.hw_press("up")
-                time.sleep(0.4)
-
-            if not found_brand:
-                self.log("三次尝试未找到刷图车辆品牌。")
+        # ====== FH6_ShuaShuaLe 选车逻辑：直接匹配 subaru.png ======
+        car_found = False
+        for attempt in range(20):
+            if not self.is_running:
                 return False
 
-            for _ in range(20):
-                if not self.is_running:
-                    return False
+            # 优先匹配 subaru.png
+            pos_target = self.wait_for_image(
+                "subaru.png",
+                region=self.regions["全界面"],
+                threshold=0.80,
+                timeout=2,
+                interval=0.25,
+                fast_mode=True
+            )
+            if pos_target:
+                self.log(f"找到目标车辆 subaru.png (第{attempt+1}次)")
+                car_found = True
+                break
 
-                pos_target = self.wait_for_image_with_element_multi(
-                    "skillcar.png",
-                    "liketag.png",
-                    region=self.regions["全界面"],
-                    main_threshold=0.75,
-                    like_threshold=0.7,
-                    final_threshold=0.7,
-                    timeout=2,
-                    interval=0.25,
-                    fast_mode=True
-                )
-                if pos_target:
-                    break
+            # 备选匹配 subaru_98_600.png
+            pos_target = self.wait_for_image(
+                "subaru_98_600.png",
+                region=self.regions["全界面"],
+                threshold=0.80,
+                timeout=1,
+                interval=0.25,
+                fast_mode=True
+            )
+            if pos_target:
+                self.log(f"找到目标车辆 subaru_98_600.png (第{attempt+1}次)")
+                car_found = True
+                break
 
-                for _ in range(4):
-                    self.hw_press("right", delay=0.08)
-                    time.sleep(0.08)
-                time.sleep(0.4)
+            # 翻页查找
+            for _ in range(4):
+                self.hw_press("right", delay=0.08)
+                time.sleep(0.08)
+            time.sleep(0.4)
 
-        if not pos_target:
-            self.log("翻页未能找到带有 liketag 的刷图车辆！")
+        if not car_found:
+            self.log("翻页20次后仍未找到目标车辆，选车失败。")
             return False
+        # ==========================================================
 
         self.game_click(pos_target)
         time.sleep(0.5)
