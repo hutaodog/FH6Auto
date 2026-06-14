@@ -60,6 +60,8 @@ from PIL import Image, ImageGrab
 import win32gui
 import pickle
 import threading
+import socket
+import struct
 
 
 
@@ -311,6 +313,174 @@ DIK_CODES = {
     "f12": (0x58, False),
 }
 
+# ==========================================
+# --- Forza Horizon 6 UDP 遥测模块 ---
+# ==========================================
+class TelemetryReader:
+    """FH6 UDP 遥测数据读取器 (Car Dash 格式, 324字节)"""
+    PACKET_SIZE = 324
+
+    def __init__(self, ip="127.0.0.1", port=1999):
+        self.ip = ip
+        self.port = port
+        self.sock = None
+        self.running = False
+        self.connected = False
+        self.last_packet_time = 0
+        self.data = {}
+
+    def start(self):
+        try:
+            self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            self.sock.settimeout(1.0)
+            self.sock.bind((self.ip, self.port))
+            self.running = True
+            return True
+        except Exception:
+            self.running = False
+            return False
+
+    def stop(self):
+        self.running = False
+        self.connected = False
+        if self.sock:
+            try:
+                self.sock.close()
+            except Exception:
+                pass
+            self.sock = None
+
+    def read_packet(self):
+        if not self.running or not self.sock:
+            return None
+        try:
+            data, _ = self.sock.recvfrom(2048)
+            if len(data) >= self.PACKET_SIZE:
+                self.connected = True
+                self.last_packet_time = time.time()
+                return self._parse(data)
+        except socket.timeout:
+            pass
+        except Exception:
+            pass
+        if self.connected and time.time() - self.last_packet_time > 3.0:
+            self.connected = False
+        return None
+
+    def _parse(self, data):
+        d = {}
+        off = 0
+        d["is_race_on"] = struct.unpack_from("<i", data, off)[0]; off += 4
+        d["timestamp_ms"] = struct.unpack_from("<I", data, off)[0]; off += 4
+        d["engine_max_rpm"] = struct.unpack_from("<f", data, off)[0]; off += 4
+        d["engine_idle_rpm"] = struct.unpack_from("<f", data, off)[0]; off += 4
+        d["current_engine_rpm"] = struct.unpack_from("<f", data, off)[0]; off += 4
+        d["accel_x"] = struct.unpack_from("<f", data, off)[0]; off += 4
+        d["accel_y"] = struct.unpack_from("<f", data, off)[0]; off += 4
+        d["accel_z"] = struct.unpack_from("<f", data, off)[0]; off += 4
+        d["vel_x"] = struct.unpack_from("<f", data, off)[0]; off += 4
+        d["vel_y"] = struct.unpack_from("<f", data, off)[0]; off += 4
+        d["vel_z"] = struct.unpack_from("<f", data, off)[0]; off += 4
+        d["ang_vel_x"] = struct.unpack_from("<f", data, off)[0]; off += 4
+        d["ang_vel_y"] = struct.unpack_from("<f", data, off)[0]; off += 4
+        d["ang_vel_z"] = struct.unpack_from("<f", data, off)[0]; off += 4
+        d["yaw"] = struct.unpack_from("<f", data, off)[0]; off += 4
+        d["pitch"] = struct.unpack_from("<f", data, off)[0]; off += 4
+        d["roll"] = struct.unpack_from("<f", data, off)[0]; off += 4
+        for name in ["norm_susp_fl", "norm_susp_fr", "norm_susp_rl", "norm_susp_rr"]:
+            d[name] = struct.unpack_from("<f", data, off)[0]; off += 4
+        for name in ["tire_slip_fl", "tire_slip_fr", "tire_slip_rl", "tire_slip_rr"]:
+            d[name] = struct.unpack_from("<f", data, off)[0]; off += 4
+        for name in ["wheel_rps_fl", "wheel_rps_fr", "wheel_rps_rl", "wheel_rps_rr"]:
+            d[name] = struct.unpack_from("<f", data, off)[0]; off += 4
+        for name in ["rumble_fl", "rumble_fr", "rumble_rl", "rumble_rr"]:
+            d[name] = struct.unpack_from("<i", data, off)[0]; off += 4
+        for name in ["puddle_fl", "puddle_fr", "puddle_rl", "puddle_rr"]:
+            d[name] = struct.unpack_from("<i", data, off)[0]; off += 4
+        for name in ["surf_rumble_fl", "surf_rumble_fr", "surf_rumble_rl", "surf_rumble_rr"]:
+            d[name] = struct.unpack_from("<f", data, off)[0]; off += 4
+        for name in ["slip_angle_fl", "slip_angle_fr", "slip_angle_rl", "slip_angle_rr"]:
+            d[name] = struct.unpack_from("<f", data, off)[0]; off += 4
+        for name in ["combined_slip_fl", "combined_slip_fr", "combined_slip_rl", "combined_slip_rr"]:
+            d[name] = struct.unpack_from("<f", data, off)[0]; off += 4
+        for name in ["susp_travel_fl", "susp_travel_fr", "susp_travel_rl", "susp_travel_rr"]:
+            d[name] = struct.unpack_from("<f", data, off)[0]; off += 4
+        d["car_ordinal"] = struct.unpack_from("<i", data, off)[0]; off += 4
+        d["car_class"] = struct.unpack_from("<i", data, off)[0]; off += 4
+        d["car_pi"] = struct.unpack_from("<i", data, off)[0]; off += 4
+        d["drivetrain"] = struct.unpack_from("<i", data, off)[0]; off += 4
+        d["num_cylinders"] = struct.unpack_from("<i", data, off)[0]; off += 4
+        d["car_group"] = struct.unpack_from("<I", data, off)[0]; off += 4
+        d["smash_vel_diff"] = struct.unpack_from("<f", data, off)[0]; off += 4
+        d["smash_mass"] = struct.unpack_from("<f", data, off)[0]; off += 4
+        d["pos_x"] = struct.unpack_from("<f", data, off)[0]; off += 4
+        d["pos_y"] = struct.unpack_from("<f", data, off)[0]; off += 4
+        d["pos_z"] = struct.unpack_from("<f", data, off)[0]; off += 4
+        d["speed"] = struct.unpack_from("<f", data, off)[0]; off += 4
+        d["power"] = struct.unpack_from("<f", data, off)[0]; off += 4
+        d["torque"] = struct.unpack_from("<f", data, off)[0]; off += 4
+        for name in ["tire_temp_fl", "tire_temp_fr", "tire_temp_rl", "tire_temp_rr"]:
+            d[name] = struct.unpack_from("<f", data, off)[0]; off += 4
+        d["boost"] = struct.unpack_from("<f", data, off)[0]; off += 4
+        d["fuel"] = struct.unpack_from("<f", data, off)[0]; off += 4
+        d["distance"] = struct.unpack_from("<f", data, off)[0]; off += 4
+        d["best_lap"] = struct.unpack_from("<f", data, off)[0]; off += 4
+        d["last_lap"] = struct.unpack_from("<f", data, off)[0]; off += 4
+        d["current_lap"] = struct.unpack_from("<f", data, off)[0]; off += 4
+        d["race_time"] = struct.unpack_from("<f", data, off)[0]; off += 4
+        d["lap_number"] = struct.unpack_from("<H", data, off)[0]; off += 2
+        d["race_position"] = struct.unpack_from("<B", data, off)[0]; off += 1
+        d["accel"] = struct.unpack_from("<B", data, off)[0]; off += 1
+        d["brake"] = struct.unpack_from("<B", data, off)[0]; off += 1
+        d["clutch"] = struct.unpack_from("<B", data, off)[0]; off += 1
+        d["handbrake"] = struct.unpack_from("<B", data, off)[0]; off += 1
+        d["gear"] = struct.unpack_from("<B", data, off)[0]; off += 1
+        d["steer"] = struct.unpack_from("<b", data, off)[0]; off += 1
+        d["norm_line"] = struct.unpack_from("<b", data, off)[0]; off += 1
+        d["norm_ai_brake"] = struct.unpack_from("<b", data, off)[0]; off += 1
+        self.data = d
+        return d
+
+    def get_speed_kmh(self):
+        return self.data.get("speed", 0) * 3.6
+
+    def get_speed_mph(self):
+        return self.data.get("speed", 0) * 2.23694
+
+    def is_race_on(self):
+        return self.data.get("is_race_on", 0) == 1
+
+    def get_rpm(self):
+        return self.data.get("current_engine_rpm", 0)
+
+    def get_gear(self):
+        return self.data.get("gear", 0)
+
+    def get_race_position(self):
+        return self.data.get("race_position", 0)
+
+    def get_lap_number(self):
+        return self.data.get("lap_number", 0)
+
+    def get_race_time(self):
+        return self.data.get("race_time", 0)
+
+
+class TelemetryWorker(threading.Thread):
+    """后台遥测数据采集线程"""
+    def __init__(self, reader, callback=None):
+        super().__init__(daemon=True)
+        self.reader = reader
+        self.callback = callback
+
+    def run(self):
+        while self.reader.running:
+            data = self.reader.read_packet()
+            if data and self.callback:
+                self.callback(data)
+
+
 # --- 全局配置 ---
 ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("blue")
@@ -371,6 +541,11 @@ class FH_UltimateBot(ctk.CTk):
         auto_extract_configs()  
         self.load_config()
 
+        # 初始化遥测模块
+        self.telemetry_reader = None
+        self.telemetry_data = {}
+        self._init_telemetry()
+
         self.setup_ui()
         self.start_hotkey_listener()
         self.update_skill_grid()
@@ -391,6 +566,60 @@ class FH_UltimateBot(ctk.CTk):
             self.after(0, lambda: func(*args, **kwargs))
         except Exception:
             pass
+
+    # ==========================================
+    # --- 遥测模块 ---
+    # ==========================================
+    def _init_telemetry(self):
+        if not self.config.get("telemetry_enabled", True):
+            self.log("遥测模块已禁用。")
+            return
+        ip = self.config.get("telemetry_ip", "127.0.0.1")
+        port = self.config.get("telemetry_port", 1999)
+        self.telemetry_reader = TelemetryReader(ip, port)
+        if self.telemetry_reader.start():
+            worker = TelemetryWorker(self.telemetry_reader, self._on_telemetry_data)
+            worker.start()
+            self.log(f"遥测模块已启动 (UDP {ip}:{port})，请在游戏设置中开启 Data Out。")
+        else:
+            self.log(f"遥测模块启动失败 (UDP {ip}:{port} 端口可能被占用)。")
+
+    def _on_telemetry_data(self, data):
+        self.telemetry_data = data
+
+    def _start_telemetry_ui_update(self):
+        def _update():
+            try:
+                if not hasattr(self, "lbl_mini_telemetry"):
+                    return
+                reader = self.telemetry_reader
+                if reader and reader.connected:
+                    d = self.telemetry_data
+                    race_on = d.get("is_race_on", 0)
+                    speed = d.get("speed", 0) * 3.6
+                    rpm = d.get("current_engine_rpm", 0)
+                    gear = d.get("gear", 0)
+                    status = "比赛中" if race_on else "漫游中"
+                    color = "#2EA043" if race_on else "#F1C40F"
+                    self.ui_call(self.lbl_mini_telemetry.configure,
+                        text=f"遥测: 已连接 ({status})", text_color=color)
+                    self.ui_call(self.lbl_mini_telemetry_detail.configure,
+                        text=f"{speed:.0f}km/h | {rpm:.0f}rpm | {gear}挡 | P{d.get('race_position', 0)}")
+                elif reader:
+                    self.ui_call(self.lbl_mini_telemetry.configure,
+                        text="遥测: 等待数据...", text_color="#E67E22")
+                    self.ui_call(self.lbl_mini_telemetry_detail.configure, text="")
+                else:
+                    self.ui_call(self.lbl_mini_telemetry.configure,
+                        text="遥测: 未启动", text_color="#888888")
+                    self.ui_call(self.lbl_mini_telemetry_detail.configure, text="")
+            except Exception:
+                pass
+            try:
+                self.after(500, _update)
+            except Exception:
+                pass
+        self.after(1000, _update)
 
     def center_window(self):
         self.update_idletasks()
@@ -469,7 +698,10 @@ class FH_UltimateBot(ctk.CTk):
             "share_code": "890169683", 
             "auto_restart": False,
             "restart_cmd": "start steam://run/2483190", 
-            "sell_mode": 1 
+            "sell_mode": 1,
+            "telemetry_enabled": True,
+            "telemetry_ip": "127.0.0.1",
+            "telemetry_port": 1999
         }
         ext_path = USER_CONFIG_FILE
         # 2. 读取用户的 config.json，并与底本合并（自动补全缺失项）
@@ -957,6 +1189,15 @@ class FH_UltimateBot(ctk.CTk):
 
         self.lbl_mini_time = ctk.CTkLabel(self.mini_info_frame, text="总耗时: 00:00:00", font=ctk.CTkFont(size=13))
         self.lbl_mini_time.pack(pady=2, anchor="w")
+
+        self.lbl_mini_telemetry = ctk.CTkLabel(self.mini_info_frame, text="遥测: 未连接", font=ctk.CTkFont(size=12), text_color="#888888")
+        self.lbl_mini_telemetry.pack(pady=(6, 0), anchor="w")
+
+        self.lbl_mini_telemetry_detail = ctk.CTkLabel(self.mini_info_frame, text="", font=ctk.CTkFont(size=11), text_color="#666666")
+        self.lbl_mini_telemetry_detail.pack(pady=0, anchor="w")
+
+        self._start_telemetry_ui_update()
+
         # 3. 按钮区 (靠右排列)
         self.btn_mini_stop = ctk.CTkButton(self.mini_frame, text="⏸ 停止 (F8)", fg_color="#DA3633", hover_color="#B02A37", width=90, font=ctk.CTkFont(weight="bold"), command=self.stop_all)
         self.btn_mini_stop.pack(side="left", fill="y", padx=5, pady=10)
