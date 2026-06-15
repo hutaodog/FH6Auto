@@ -2051,8 +2051,12 @@ class FH_UltimateBot(ctk.CTk):
                 hwnd = hwnds[0]
                 if ctypes.windll.user32.IsIconic(hwnd):
                     ctypes.windll.user32.ShowWindow(hwnd, 9)
-                    time.sleep(0.5)
-
+                else:
+                    ctypes.windll.user32.ShowWindow(hwnd, 5)
+                    
+                ctypes.windll.user32.SetForegroundWindow(hwnd)
+                time.sleep(0.5)
+                self.set_english_input()
                 try:
                     # 1. 更新识图区域为游戏实际窗口区域（识图必须在游戏窗口内）
                     client_rect = win32gui.GetClientRect(hwnd)
@@ -3887,37 +3891,43 @@ class FH_UltimateBot(ctk.CTk):
         self.hw_press("enter")
         time.sleep(2.0)
 
-        # ====== FH6_ShuaShuaLe 选车逻辑：直接匹配 subaru.png ======
+        # ====== 选车逻辑：筛选→收藏→找 skillcar.png ======
+        # 1. 打开筛选菜单
+        self.hw_press("tab")
+        time.sleep(1.0)
+        self.hw_press("enter")
+        time.sleep(1.0)
+
+        # 2. 导航到收藏选项并勾选
+        self.hw_press("down")
+        time.sleep(0.3)
+        self.hw_press("down")
+        time.sleep(0.3)
+        self.hw_press("down")
+        time.sleep(0.3)
+        self.hw_press("enter")
+        time.sleep(0.5)
+
+        # 3. 关闭筛选菜单
+        self.hw_press("escape")
+        time.sleep(1.0)
+
+        # 4. 在收藏车辆中查找 skillcar.png
         car_found = False
         for attempt in range(20):
             if not self.is_running:
                 return False
 
-            # 优先匹配 subaru.png
             pos_target = self.wait_for_image(
-                "subaru.png",
+                "skillcar.png",
                 region=self.regions["全界面"],
                 threshold=0.80,
-                timeout=2,
+                timeout=3,
                 interval=0.25,
                 fast_mode=True
             )
             if pos_target:
-                self.log(f"找到目标车辆 subaru.png (第{attempt+1}次)")
-                car_found = True
-                break
-
-            # 备选匹配 subaru_98_600.png
-            pos_target = self.wait_for_image(
-                "subaru_98_600.png",
-                region=self.regions["全界面"],
-                threshold=0.80,
-                timeout=1,
-                interval=0.25,
-                fast_mode=True
-            )
-            if pos_target:
-                self.log(f"找到目标车辆 subaru_98_600.png (第{attempt+1}次)")
+                self.log(f"找到刷图车辆 skillcar.png (第{attempt+1}次)")
                 car_found = True
                 break
 
@@ -3928,7 +3938,7 @@ class FH_UltimateBot(ctk.CTk):
             time.sleep(0.4)
 
         if not car_found:
-            self.log("翻页20次后仍未找到目标车辆，选车失败。")
+            self.log("翻页20次后仍未找到 skillcar.png，选车失败。")
             return False
         # ==========================================================
 
